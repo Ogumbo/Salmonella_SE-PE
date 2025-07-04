@@ -509,53 +509,81 @@ iqtree -s core_gene_alignment.aln -nt AUTO -m GTR+G -bb 1000 -redo
 
 *************************************************************************************************************************************************************************************************************************************
 
-📌 Pipeline Overview
+📌 PAIRED END_Pipeline Overview
 
-
-✅ Summary Table
-Step	Tool	Purpose
-Concatenate	cat	Combine FASTQ files
-Trimming	trimmomatic	Remove adapters, bad bases
-QC	fastqc + multiqc	Assess read quality
-Reference	wget	Download reference genome
-Mapping	bwa + samtools	Align reads
-Assembly	spades	Build contigs
-Polishing	pilon	Correct errors
-Annotation	prokka	Annotate genes
-Typing	mlst, abricate	ST, AMR, plasmids, virulence
-Species ID	kraken2	Confirm organism
-Phylogenetics	roary + iqtree	Build core genome tree
 
 Tools:
-cat • trimmomatic • fastqc • multiqc • wget • bwa + samtools • spades • pilon • prokka • mlst • abricate • kraken2 or centrifuge • roary • iqtree
+
+zcat • trimmomatic • fastqc • multiqc • wget • bwa + samtools • spades • pilon • prokka • mlst • abricate • kraken2 or centrifuge • roary • iqtree
+
+
+Step	Tool	Purpose
+1	zcat	Concatenate FASTQ
+2	Trimmomatic	Trim adapters, low-quality reads
+3	FastQC + MultiQC	QC
+4	wget	Download reference
+5	BWA + Samtools	Map reads
+6	SPAdes	De novo assembly
+7	Pilon	Polish
+8	Prokka	Annotate
+9	MLST, abricate	Typing
+10	Kraken2	Species ID
+11	Roary + IQ-TREE	Pangenome + phylogeny
+
+CREATE AWORKING SPACE
+
+mkdir salmonella_illumina_04072025
+
+cd salmonella_illumina_04072025
+
+mkdir gzipped_fastq
+Mkir concatenated_fastq
+mkdir trimmed
+mkdir qc_report
+mkdir reference
+mkdir mapped_samtools
+mkdir denovo_spade
+mkdir polished_pilon
+mkdir annotated_prokka
+mkdir mlst
+mkdir amr
+mkdir plasmid
+mkdir virulence
+mkdir spid_kraken
+
 🔹 1️⃣ Concatenate FASTQ files
 
 👉 Purpose: Merge multiple .fastq files for the same barcode/sample.
 
-📍 SINGLE-END
-
-cat barcode01/*.fastq > barcode01_SE.fastq
 
 📍 PAIRED-END
 
 Assume file names include _R1_ and _R2_ to distinguish read pairs.
 
-# Forward reads
-cat barcode01/*_R1_*.fastq > barcode01_R1.fastq
+Make output directory
 
-# Reverse reads
-cat barcode01/*_R2_*.fastq > barcode01_R2.fastq
+mkdir  concatenated_fastq
+
+# === Sample 01 ===
+# Concatenate all R1 reads for sample01
+zcat sample01_R1_*.fastq.gz > concatenated_fastq/sample01_R1.fastq
+
+# Concatenate all R2 reads for sample01
+zcat sample01_R2_*.fastq.gz > concatenated_fastq/sample01_R2.fastq
+
+# === Sample 02 ===
+zcat sample02_R1_*.fastq.gz > concatenated_fastq/sample02_R1.fastq
+zcat sample02_R2_*.fastq.gz > concatenated_fastq/sample02_R2.fastq
+
+# === Sample 03 ===
+zcat sample03_R1_*.fastq.gz > concatenated_fastq/sample03_R1.fastq
+zcat sample03_R2_*.fastq.gz > concatenated_fastq/sample03_R2.fastq
+
 
 ✂️ 2️⃣ Quality Trimming — Trimmomatic
 
 👉 Purpose: Remove adapters, low-quality ends, short reads.
 
-📍 SINGLE-END
-
-trimmomatic SE -threads 4 \
-  barcode01_SE.fastq barcode01_SE_trimmed.fastq \
-  ILLUMINACLIP:TruSeq3-SE.fa:2:30:10 \
-  LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:36
 
 📍 PAIRED-END
 
@@ -570,9 +598,6 @@ trimmomatic PE -threads 4 \
 
 👉 Purpose: Generate QC reports for trimmed reads.
 
-📍 SINGLE-END
-
-fastqc barcode01_SE_trimmed.fastq -o qc_reports/
 
 📍 PAIRED-END
 
@@ -586,7 +611,7 @@ multiqc qc_reports/ -o qc_reports/
 
 👉 Purpose: Get the reference genome for mapping and polishing.
 
-wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/006/945/GCF_000006945.2_ASM694v2/GCF_000006945.2_ASM694v2_genomic.fna.gz
+
 wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/006/945/GCF_000006945.2_ASM694v2/GCF_000006945.2_ASM694v2_genomic.gff.gz
 
 # Uncompress
@@ -603,9 +628,6 @@ bwa index GCF_000006945.2_ASM694v2_genomic.fna
 
 2️⃣ Map
 
-📍 SINGLE-END
-
-bwa mem -t 4 GCF_000006945.2_ASM694v2_genomic.fna barcode01_SE_trimmed.fastq | samtools view -Sb - > barcode01.bam
 
 📍 PAIRED-END
 
@@ -620,9 +642,6 @@ samtools index barcode01_sorted.bam
 
 👉 Purpose: Build genome contigs from reads (without reference).
 
-📍 SINGLE-END
-
-spades.py -s barcode01_SE_trimmed.fastq -o spades_output/ -t 4
 
 📍 PAIRED-END
 
@@ -636,9 +655,6 @@ spades.py -1 barcode01_R1_trimmed_paired.fastq -2 barcode01_R2_trimmed_paired.fa
 
 bwa index spades_output/scaffolds.fasta
 
-📍 SINGLE-END
-
-bwa mem -t 4 spades_output/scaffolds.fasta barcode01_SE_trimmed.fastq | samtools view -Sb - > pilon.bam
 
 📍 PAIRED-END
 
