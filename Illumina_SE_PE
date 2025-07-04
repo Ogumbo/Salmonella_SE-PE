@@ -1,0 +1,713 @@
+
+
+🧬 1️⃣ Concatenate gzipped FASTQ files
+
+👉 Why: If you have multiple FASTQ files per barcode/run (e.g., from different lanes), you often concatenate them into a single file.
+
+Example: Combine all barcode01 FASTQs.
+
+🔹 Single-End:
+
+cat barcode01/*.fastq.gz > barcode01_SE.fastq.gz
+
+🔹 Paired-End:
+Combine R1 files and R2 files separately.
+
+cat barcode01/*_R1_*.fastq.gz > barcode01_R1.fastq.gz
+cat barcode01/*_R2_*.fastq.gz > barcode01_R2.fastq.gz
+
+✂️ 2️⃣ Trimming with Trimmomatic
+
+👉 Why: Remove adapters, low-quality bases, short reads.
+
+🔹 Single-End:
+
+trimmomatic SE -threads 4 \
+  barcode01_SE.fastq.gz barcode01_SE_trimmed.fastq.gz \
+  ILLUMINACLIP:TruSeq3-SE.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:36
+
+🔹 Paired-End:
+
+trimmomatic PE -threads 4 \
+  barcode01_R1.fastq.gz barcode01_R2.fastq.gz \
+  barcode01_R1_trimmed_paired.fastq.gz barcode01_R1_trimmed_unpaired.fastq.gz \
+  barcode01_R2_trimmed_paired.fastq.gz barcode01_R2_trimmed_unpaired.fastq.gz \
+  ILLUMINACLIP:TruSeq3-PE.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:36
+
+✅ 3️⃣ Quality check with FastQC + MultiQC
+
+👉 Why: Visual QC of raw and trimmed reads.
+
+Run FastQC:
+
+🔹 Single-End:
+
+fastqc barcode01_SE_trimmed.fastq.gz -o qc_reports/
+
+🔹 Paired-End:
+
+fastqc barcode01_R1_trimmed_paired.fastq.gz barcode01_R2_trimmed_paired.fastq.gz -o qc_reports/
+
+Combine reports with MultiQC:
+
+multiqc qc_reports/ -o qc_reports/
+
+📥 4️⃣ Download Salmonella enterica LT2 reference
+
+👉 Why: For mapping and polishing.
+
+# Download reference genome FASTA and GFF from NCBI
+wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/006/945/GCF_000006945.2_ASM694v2/GCF_000006945.2_ASM694v2_genomic.fna.gz
+wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/006/945/GCF_000006945.2_ASM694v2/GCF_000006945.2_ASM694v2_genomic.gff.gz
+
+# Unzip
+gunzip GCF_000006945.2_ASM694v2_genomic.fna.gz
+gunzip GCF_000006945.2_ASM694v2_genomic.gff.gz
+
+🗂️ 5️⃣ Mapping with BWA + Samtools
+
+👉 Why: Align reads to reference.
+
+    Index the reference:
+
+bwa index GCF_000006945.2_ASM694v2_genomic.fna
+
+    Align:
+
+🔹 Single-End:
+
+bwa mem -t 4 GCF_000006945.2_ASM694v2_genomic.fna barcode01_SE_trimmed.fastq.gz | samtools view -Sb - > barcode01.bam
+
+🔹 Paired-End:
+
+bwa mem -t 4 GCF_000006945.2_ASM694v2_genomic.fna barcode01_R1_trimmed_paired.fastq.gz barcode01_R2_trimmed_paired.fastq.gz | samtools view -Sb - > barcode01.bam
+
+    Sort + index:
+
+samtools sort barcode01.bam -o barcode01_sorted.bam
+samtools index barcode01_sorted.bam
+
+🧩 6️⃣ De novo assembly with SPAdes
+
+👉 Why: Assemble genomes without a reference.
+
+🔹 Single-End:
+
+spades.py -s barcode01_SE_trimmed.fastq.gz -o spades_output/ -t 4
+
+🔹 Paired-End:
+
+spades.py -1 barcode01_R1_trimmed_paired.fastq.gz -2 barcode01_R2_trimmed_paired.fastq.gz -o spades_output/ -t 4
+
+🔬 7️⃣ Polishing with Pilon
+
+👉 Why: Correct assembly errors using mapped reads.
+
+# Index contigs
+bwa index spades_output/scaffolds.fasta
+
+# Map reads to contigs
+bwa mem -t 4 spades_output/scaffolds.fasta barcode01_R1_trimmed_paired.fastq.gz barcode01_R2_trimmed_paired.fastq.gz | samtools view -Sb - > pilon.bam
+samtools sort pilon.bam -o pilon_sorted.bam
+samtools index pilon_sorted.bam
+
+# Run Pilon
+pilon --genome spades_output/scaffolds.fasta --frags pilon_sorted.bam --output pilon_polished --threads 4
+
+🧾 8️⃣ Annotation with Prokka
+
+👉 Why: Identify genes, rRNAs, tRNAs, features.
+
+prokka --outdir prokka_output --prefix barcode01 pilon_polished.fasta
+
+🧬 9️⃣ Typing (MLST, AMR, plasmids, virulence)
+
+👉 Use mlst, abricate, plasmidfinder
+
+# MLST
+mlst pilon_polished.fasta
+
+# AMR + virulence + plasmids with abricate
+abricate --db resfinder pilon_polished.fasta > abricate_resfinder.txt
+abricate --db virulencefinder pilon_polished.fasta > abricate_virulence.txt
+abricate --db plasmidfinder pilon_polished.fasta > abricate_plasmids.txt
+
+🧭 🔟 Species ID with Centrifuge or Kraken2
+
+👉 Kraken2 example:
+
+kraken2 --db /path/to/kraken_db --threads 4 --report kraken_report.txt --output kraken_output.txt pilon_polished.fasta
+
+🌳 1️⃣1️⃣ Pangenome + phylogenetics
+
+👉 Roary for core genome alignment → IQ-TREE for tree
+
+    Roary (multiple samples)
+    Put all .gff files in one folder:
+
+roary -e -n -v *.gff
+
+    IQ-TREE:
+
+iqtree -s core_gene_alignment.aln -nt AUTO -m GTR+G -bb 1000 -redo
+
+✅ Summary
+Step	Tool	Purpose
+1	cat	Concatenate FASTQ
+2	Trimmomatic	Trim adapters, low-quality reads
+3	FastQC + MultiQC	QC
+4	wget	Download reference
+5	BWA + Samtools	Map reads
+6	SPAdes	De novo assembly
+7	Pilon	Polish
+8	Prokka	Annotate
+9	MLST, abricate	Typing
+10	Kraken2	Species ID
+11	Roary + IQ-TREE	Pangenome + phylogeny
+
+✅ This pipeline covers:
+
+    Single-end & paired-end,
+
+    End-to-end from raw reads,
+
+    Explained & reproducible.
+
+If you’d like, I can wrap this into a shell script template, a Snakemake workflow, or Nextflow pipeline — just say yes and I’ll prepare it!
+You said:
+write abioinformatics pipeline for the following tasks using concatenated. fast q files from illumina and write pipleline for both single end and paired end. Start with concatenation of gzipped files with the barcode01 as example. Explain each step and the command lines. use the following tools:Concatenation Trimming using trimmomatic; QC reporting using fastqc and multiqc:Procedure for salmonella enterica lt2 reference download file from ncbi,Mapping using samtool;denovo assembly using spades; polishing using pilon,annotation using prokka;Typing (MLST, AMR, plasmid, virulence);Species ID (Centrifuge/Kraken2);Phylogenetics (Roary + IQ-TREE).Use. fastq file and not.gz file.
+ChatGPT said:
+
+✅ Got it! Let’s write a clear command-line bioinformatics pipeline for Illumina FASTQ files (not gzipped) — for both single-end and paired-end.
+We’ll start with concatenating .fastq files for barcode01 as an example, then go step by step using only uncompressed .fastq files.
+📌 Pipeline Overview
+
+Tools:
+cat • trimmomatic • fastqc • multiqc • wget • bwa + samtools • spades • pilon • prokka • mlst • abricate • kraken2 or centrifuge • roary • iqtree
+🔹 1️⃣ Concatenate FASTQ files
+
+👉 Purpose: Merge multiple .fastq files for the same barcode/sample.
+
+📍 SINGLE-END
+
+cat barcode01/*.fastq > barcode01_SE.fastq
+
+📍 PAIRED-END
+
+Assume file names include _R1_ and _R2_ to distinguish read pairs.
+
+# Forward reads
+cat barcode01/*_R1_*.fastq > barcode01_R1.fastq
+
+# Reverse reads
+cat barcode01/*_R2_*.fastq > barcode01_R2.fastq
+
+✂️ 2️⃣ Quality Trimming — Trimmomatic
+
+👉 Purpose: Remove adapters, low-quality ends, short reads.
+
+📍 SINGLE-END
+
+trimmomatic SE -threads 4 \
+  barcode01_SE.fastq barcode01_SE_trimmed.fastq \
+  ILLUMINACLIP:TruSeq3-SE.fa:2:30:10 \
+  LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:36
+
+📍 PAIRED-END
+
+trimmomatic PE -threads 4 \
+  barcode01_R1.fastq barcode01_R2.fastq \
+  barcode01_R1_trimmed_paired.fastq barcode01_R1_trimmed_unpaired.fastq \
+  barcode01_R2_trimmed_paired.fastq barcode01_R2_trimmed_unpaired.fastq \
+  ILLUMINACLIP:TruSeq3-PE.fa:2:30:10 \
+  LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:36
+
+✅ 3️⃣ Quality Control — FastQC + MultiQC
+
+👉 Purpose: Generate QC reports for trimmed reads.
+
+📍 SINGLE-END
+
+fastqc barcode01_SE_trimmed.fastq -o qc_reports/
+
+📍 PAIRED-END
+
+fastqc barcode01_R1_trimmed_paired.fastq barcode01_R2_trimmed_paired.fastq -o qc_reports/
+
+Combine all QC reports
+
+multiqc qc_reports/ -o qc_reports/
+
+📥 4️⃣ Download Salmonella enterica LT2 reference
+
+👉 Purpose: Get the reference genome for mapping and polishing.
+
+wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/006/945/GCF_000006945.2_ASM694v2/GCF_000006945.2_ASM694v2_genomic.fna.gz
+wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/006/945/GCF_000006945.2_ASM694v2/GCF_000006945.2_ASM694v2_genomic.gff.gz
+
+# Uncompress
+gunzip GCF_000006945.2_ASM694v2_genomic.fna.gz
+gunzip GCF_000006945.2_ASM694v2_genomic.gff.gz
+
+🗂️ 5️⃣ Mapping — BWA + Samtools
+
+👉 Purpose: Map trimmed reads to the reference.
+
+1️⃣ Index reference
+
+bwa index GCF_000006945.2_ASM694v2_genomic.fna
+
+2️⃣ Map
+
+📍 SINGLE-END
+
+bwa mem -t 4 GCF_000006945.2_ASM694v2_genomic.fna barcode01_SE_trimmed.fastq | samtools view -Sb - > barcode01.bam
+
+📍 PAIRED-END
+
+bwa mem -t 4 GCF_000006945.2_ASM694v2_genomic.fna barcode01_R1_trimmed_paired.fastq barcode01_R2_trimmed_paired.fastq | samtools view -Sb - > barcode01.bam
+
+3️⃣ Sort & index
+
+samtools sort barcode01.bam -o barcode01_sorted.bam
+samtools index barcode01_sorted.bam
+
+🧩 6️⃣ De novo Assembly — SPAdes
+
+👉 Purpose: Build genome contigs from reads (without reference).
+
+📍 SINGLE-END
+
+spades.py -s barcode01_SE_trimmed.fastq -o spades_output/ -t 4
+
+📍 PAIRED-END
+
+spades.py -1 barcode01_R1_trimmed_paired.fastq -2 barcode01_R2_trimmed_paired.fastq -o spades_output/ -t 4
+
+🧽 7️⃣ Polishing — Pilon
+
+👉 Purpose: Correct assembly errors using mapped reads.
+
+1️⃣ Map reads back to assembly
+
+bwa index spades_output/scaffolds.fasta
+
+📍 SINGLE-END
+
+bwa mem -t 4 spades_output/scaffolds.fasta barcode01_SE_trimmed.fastq | samtools view -Sb - > pilon.bam
+
+📍 PAIRED-END
+
+bwa mem -t 4 spades_output/scaffolds.fasta barcode01_R1_trimmed_paired.fastq barcode01_R2_trimmed_paired.fastq | samtools view -Sb - > pilon.bam
+
+2️⃣ Sort & index
+
+samtools sort pilon.bam -o pilon_sorted.bam
+samtools index pilon_sorted.bam
+
+3️⃣ Run Pilon
+
+pilon --genome spades_output/scaffolds.fasta --frags pilon_sorted.bam --output pilon_polished --threads 4
+
+🧬 8️⃣ Annotation — Prokka
+
+👉 Purpose: Identify genes and features.
+
+prokka --outdir prokka_output --prefix barcode01 pilon_polished.fasta
+
+🧾 9️⃣ Typing — MLST, AMR, plasmids, virulence
+
+👉 Purpose: Determine sequence type, resistance, plasmids, virulence factors.
+
+# MLST
+mlst pilon_polished.fasta
+
+# AMR, virulence, plasmids — abricate
+abricate --db resfinder pilon_polished.fasta > abricate_resfinder.txt
+abricate --db virulencefinder pilon_polished.fasta > abricate_virulence.txt
+abricate --db plasmidfinder pilon_polished.fasta > abricate_plasmids.txt
+
+🧭 🔟 Species ID — Kraken2 or Centrifuge
+
+👉 Purpose: Confirm species ID
+
+kraken2 --db /path/to/kraken_db --threads 4 --report kraken_report.txt --output kraken_output.txt pilon_polished.fasta
+
+🌳 1️⃣1️⃣ Pangenome + Phylogenetics
+
+👉 Purpose: Core genome alignment + tree.
+
+Roary
+
+# Gather all .gff files (one per sample)
+roary -e -n -v *.gff
+
+IQ-TREE
+
+iqtree -s core_gene_alignment.aln -nt AUTO -m GTR+G -bb 1000 -redo
+
+✅ Summary Table
+Step	Tool	Purpose
+Concatenate	cat	Combine FASTQ files
+Trimming	trimmomatic	Remove adapters, bad bases
+QC	fastqc + multiqc	Skip to content
+Chat history
+You said:
+write abioinformatics pipeline for the following tasks using concatenated. fast q files from illumina and write pipleline for both single end and paired end. Start with concatenation of gzipped files with the barcode01 as example. Explain each step and the command lines. use the following tools:Concatenation Trimming using trimmomatic; QC reporting using fastqc and multiqc:Procedure for salmonella enterica lt2 reference download file from ncbi,Mapping using samtool;denovo assembly using spades; polishing using pilon,annotation using prokka;Typing (MLST, AMR, plasmid, virulence);Species ID (Centrifuge/Kraken2);Phylogenetics (Roary + IQ-TREE).
+ChatGPT said:
+
+Alright — here’s a complete, clear bioinformatics pipeline for Illumina data (both single-end and paired-end) starting from gzipped FASTQ files for Salmonella enterica analysis.
+I’ll break it down step-by-step, with commands, tool names, and explanations.
+🧬 1️⃣ Concatenate gzipped FASTQ files
+
+👉 Why: If you have multiple FASTQ files per barcode/run (e.g., from different lanes), you often concatenate them into a single file.
+
+Example: Combine all barcode01 FASTQs.
+
+🔹 Single-End:
+
+cat barcode01/*.fastq.gz > barcode01_SE.fastq.gz
+
+🔹 Paired-End:
+Combine R1 files and R2 files separately.
+
+cat barcode01/*_R1_*.fastq.gz > barcode01_R1.fastq.gz
+cat barcode01/*_R2_*.fastq.gz > barcode01_R2.fastq.gz
+
+✂️ 2️⃣ Trimming with Trimmomatic
+
+👉 Why: Remove adapters, low-quality bases, short reads.
+
+🔹 Single-End:
+
+trimmomatic SE -threads 4 \
+  barcode01_SE.fastq.gz barcode01_SE_trimmed.fastq.gz \
+  ILLUMINACLIP:TruSeq3-SE.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:36
+
+🔹 Paired-End:
+
+trimmomatic PE -threads 4 \
+  barcode01_R1.fastq.gz barcode01_R2.fastq.gz \
+  barcode01_R1_trimmed_paired.fastq.gz barcode01_R1_trimmed_unpaired.fastq.gz \
+  barcode01_R2_trimmed_paired.fastq.gz barcode01_R2_trimmed_unpaired.fastq.gz \
+  ILLUMINACLIP:TruSeq3-PE.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:36
+
+✅ 3️⃣ Quality check with FastQC + MultiQC
+
+👉 Why: Visual QC of raw and trimmed reads.
+
+Run FastQC:
+
+🔹 Single-End:
+
+fastqc barcode01_SE_trimmed.fastq.gz -o qc_reports/
+
+🔹 Paired-End:
+
+fastqc barcode01_R1_trimmed_paired.fastq.gz barcode01_R2_trimmed_paired.fastq.gz -o qc_reports/
+
+Combine reports with MultiQC:
+
+multiqc qc_reports/ -o qc_reports/
+
+📥 4️⃣ Download Salmonella enterica LT2 reference
+
+👉 Why: For mapping and polishing.
+
+# Download reference genome FASTA and GFF from NCBI
+wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/006/945/GCF_000006945.2_ASM694v2/GCF_000006945.2_ASM694v2_genomic.fna.gz
+wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/006/945/GCF_000006945.2_ASM694v2/GCF_000006945.2_ASM694v2_genomic.gff.gz
+
+# Unzip
+gunzip GCF_000006945.2_ASM694v2_genomic.fna.gz
+gunzip GCF_000006945.2_ASM694v2_genomic.gff.gz
+
+🗂️ 5️⃣ Mapping with BWA + Samtools
+
+👉 Why: Align reads to reference.
+
+    Index the reference:
+
+bwa index GCF_000006945.2_ASM694v2_genomic.fna
+
+    Align:
+
+🔹 Single-End:
+
+bwa mem -t 4 GCF_000006945.2_ASM694v2_genomic.fna barcode01_SE_trimmed.fastq.gz | samtools view -Sb - > barcode01.bam
+
+🔹 Paired-End:
+
+bwa mem -t 4 GCF_000006945.2_ASM694v2_genomic.fna barcode01_R1_trimmed_paired.fastq.gz barcode01_R2_trimmed_paired.fastq.gz | samtools view -Sb - > barcode01.bam
+
+    Sort + index:
+
+samtools sort barcode01.bam -o barcode01_sorted.bam
+samtools index barcode01_sorted.bam
+
+🧩 6️⃣ De novo assembly with SPAdes
+
+👉 Why: Assemble genomes without a reference.
+
+🔹 Single-End:
+
+spades.py -s barcode01_SE_trimmed.fastq.gz -o spades_output/ -t 4
+
+🔹 Paired-End:
+
+spades.py -1 barcode01_R1_trimmed_paired.fastq.gz -2 barcode01_R2_trimmed_paired.fastq.gz -o spades_output/ -t 4
+
+🔬 7️⃣ Polishing with Pilon
+
+👉 Why: Correct assembly errors using mapped reads.
+
+# Index contigs
+bwa index spades_output/scaffolds.fasta
+
+# Map reads to contigs
+bwa mem -t 4 spades_output/scaffolds.fasta barcode01_R1_trimmed_paired.fastq.gz barcode01_R2_trimmed_paired.fastq.gz | samtools view -Sb - > pilon.bam
+samtools sort pilon.bam -o pilon_sorted.bam
+samtools index pilon_sorted.bam
+
+# Run Pilon
+pilon --genome spades_output/scaffolds.fasta --frags pilon_sorted.bam --output pilon_polished --threads 4
+
+🧾 8️⃣ Annotation with Prokka
+
+👉 Why: Identify genes, rRNAs, tRNAs, features.
+
+prokka --outdir prokka_output --prefix barcode01 pilon_polished.fasta
+
+🧬 9️⃣ Typing (MLST, AMR, plasmids, virulence)
+
+👉 Use mlst, abricate, plasmidfinder
+
+# MLST
+mlst pilon_polished.fasta
+
+# AMR + virulence + plasmids with abricate
+abricate --db resfinder pilon_polished.fasta > abricate_resfinder.txt
+abricate --db virulencefinder pilon_polished.fasta > abricate_virulence.txt
+abricate --db plasmidfinder pilon_polished.fasta > abricate_plasmids.txt
+
+🧭 🔟 Species ID with Centrifuge or Kraken2
+
+👉 Kraken2 example:
+
+kraken2 --db /path/to/kraken_db --threads 4 --report kraken_report.txt --output kraken_output.txt pilon_polished.fasta
+
+🌳 1️⃣1️⃣ Pangenome + phylogenetics
+
+👉 Roary for core genome alignment → IQ-TREE for tree
+
+    Roary (multiple samples)
+    Put all .gff files in one folder:
+
+roary -e -n -v *.gff
+
+    IQ-TREE:
+
+iqtree -s core_gene_alignment.aln -nt AUTO -m GTR+G -bb 1000 -redo
+
+✅ Summary
+Step	Tool	Purpose
+1	cat	Concatenate FASTQ
+2	Trimmomatic	Trim adapters, low-quality reads
+3	FastQC + MultiQC	QC
+4	wget	Download reference
+5	BWA + Samtools	Map reads
+6	SPAdes	De novo assembly
+7	Pilon	Polish
+8	Prokka	Annotate
+9	MLST, abricate	Typing
+10	Kraken2	Species ID
+11	Roary + IQ-TREE	Pangenome + phylogeny
+
+
+*************************************************************************************************************************************************************************************************************************************
+
+📌 Pipeline Overview
+
+
+✅ Summary Table
+Step	Tool	Purpose
+Concatenate	cat	Combine FASTQ files
+Trimming	trimmomatic	Remove adapters, bad bases
+QC	fastqc + multiqc	Assess read quality
+Reference	wget	Download reference genome
+Mapping	bwa + samtools	Align reads
+Assembly	spades	Build contigs
+Polishing	pilon	Correct errors
+Annotation	prokka	Annotate genes
+Typing	mlst, abricate	ST, AMR, plasmids, virulence
+Species ID	kraken2	Confirm organism
+Phylogenetics	roary + iqtree	Build core genome tree
+
+Tools:
+cat • trimmomatic • fastqc • multiqc • wget • bwa + samtools • spades • pilon • prokka • mlst • abricate • kraken2 or centrifuge • roary • iqtree
+🔹 1️⃣ Concatenate FASTQ files
+
+👉 Purpose: Merge multiple .fastq files for the same barcode/sample.
+
+📍 SINGLE-END
+
+cat barcode01/*.fastq > barcode01_SE.fastq
+
+📍 PAIRED-END
+
+Assume file names include _R1_ and _R2_ to distinguish read pairs.
+
+# Forward reads
+cat barcode01/*_R1_*.fastq > barcode01_R1.fastq
+
+# Reverse reads
+cat barcode01/*_R2_*.fastq > barcode01_R2.fastq
+
+✂️ 2️⃣ Quality Trimming — Trimmomatic
+
+👉 Purpose: Remove adapters, low-quality ends, short reads.
+
+📍 SINGLE-END
+
+trimmomatic SE -threads 4 \
+  barcode01_SE.fastq barcode01_SE_trimmed.fastq \
+  ILLUMINACLIP:TruSeq3-SE.fa:2:30:10 \
+  LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:36
+
+📍 PAIRED-END
+
+trimmomatic PE -threads 4 \
+  barcode01_R1.fastq barcode01_R2.fastq \
+  barcode01_R1_trimmed_paired.fastq barcode01_R1_trimmed_unpaired.fastq \
+  barcode01_R2_trimmed_paired.fastq barcode01_R2_trimmed_unpaired.fastq \
+  ILLUMINACLIP:TruSeq3-PE.fa:2:30:10 \
+  LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:36
+
+✅ 3️⃣ Quality Control — FastQC + MultiQC
+
+👉 Purpose: Generate QC reports for trimmed reads.
+
+📍 SINGLE-END
+
+fastqc barcode01_SE_trimmed.fastq -o qc_reports/
+
+📍 PAIRED-END
+
+fastqc barcode01_R1_trimmed_paired.fastq barcode01_R2_trimmed_paired.fastq -o qc_reports/
+
+Combine all QC reports
+
+multiqc qc_reports/ -o qc_reports/
+
+📥 4️⃣ Download Salmonella enterica LT2 reference
+
+👉 Purpose: Get the reference genome for mapping and polishing.
+
+wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/006/945/GCF_000006945.2_ASM694v2/GCF_000006945.2_ASM694v2_genomic.fna.gz
+wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/006/945/GCF_000006945.2_ASM694v2/GCF_000006945.2_ASM694v2_genomic.gff.gz
+
+# Uncompress
+gunzip GCF_000006945.2_ASM694v2_genomic.fna.gz
+gunzip GCF_000006945.2_ASM694v2_genomic.gff.gz
+
+🗂️ 5️⃣ Mapping — BWA + Samtools
+
+👉 Purpose: Map trimmed reads to the reference.
+
+1️⃣ Index reference
+
+bwa index GCF_000006945.2_ASM694v2_genomic.fna
+
+2️⃣ Map
+
+📍 SINGLE-END
+
+bwa mem -t 4 GCF_000006945.2_ASM694v2_genomic.fna barcode01_SE_trimmed.fastq | samtools view -Sb - > barcode01.bam
+
+📍 PAIRED-END
+
+bwa mem -t 4 GCF_000006945.2_ASM694v2_genomic.fna barcode01_R1_trimmed_paired.fastq barcode01_R2_trimmed_paired.fastq | samtools view -Sb - > barcode01.bam
+
+3️⃣ Sort & index
+
+samtools sort barcode01.bam -o barcode01_sorted.bam
+samtools index barcode01_sorted.bam
+
+🧩 6️⃣ De novo Assembly — SPAdes
+
+👉 Purpose: Build genome contigs from reads (without reference).
+
+📍 SINGLE-END
+
+spades.py -s barcode01_SE_trimmed.fastq -o spades_output/ -t 4
+
+📍 PAIRED-END
+
+spades.py -1 barcode01_R1_trimmed_paired.fastq -2 barcode01_R2_trimmed_paired.fastq -o spades_output/ -t 4
+
+🧽 7️⃣ Polishing — Pilon
+
+👉 Purpose: Correct assembly errors using mapped reads.
+
+1️⃣ Map reads back to assembly
+
+bwa index spades_output/scaffolds.fasta
+
+📍 SINGLE-END
+
+bwa mem -t 4 spades_output/scaffolds.fasta barcode01_SE_trimmed.fastq | samtools view -Sb - > pilon.bam
+
+📍 PAIRED-END
+
+bwa mem -t 4 spades_output/scaffolds.fasta barcode01_R1_trimmed_paired.fastq barcode01_R2_trimmed_paired.fastq | samtools view -Sb - > pilon.bam
+
+2️⃣ Sort & index
+
+samtools sort pilon.bam -o pilon_sorted.bam
+samtools index pilon_sorted.bam
+
+3️⃣ Run Pilon
+
+pilon --genome spades_output/scaffolds.fasta --frags pilon_sorted.bam --output pilon_polished --threads 4
+
+🧬 8️⃣ Annotation — Prokka
+
+👉 Purpose: Identify genes and features.
+
+prokka --outdir prokka_output --prefix barcode01 pilon_polished.fasta
+
+🧾 9️⃣ Typing — MLST, AMR, plasmids, virulence
+
+👉 Purpose: Determine sequence type, resistance, plasmids, virulence factors.
+
+# MLST
+mlst pilon_polished.fasta
+
+# AMR, virulence, plasmids — abricate
+abricate --db resfinder pilon_polished.fasta > abricate_resfinder.txt
+abricate --db virulencefinder pilon_polished.fasta > abricate_virulence.txt
+abricate --db plasmidfinder pilon_polished.fasta > abricate_plasmids.txt
+
+🧭 🔟 Species ID — Kraken2 or Centrifuge
+
+👉 Purpose: Confirm species ID
+
+kraken2 --db /path/to/kraken_db --threads 4 --report kraken_report.txt --output kraken_output.txt pilon_polished.fasta
+
+🌳 1️⃣1️⃣ Pangenome + Phylogenetics
+
+👉 Purpose: Core genome alignment + tree.
+
+Roary
+
+# Gather all .gff files (one per sample)
+roary -e -n -v *.gff
+
+IQ-TREE
+
+iqtree -s core_gene_alignment.aln -nt AUTO -m GTR+G -bb 1000 -redo
+
+
+
+
+
