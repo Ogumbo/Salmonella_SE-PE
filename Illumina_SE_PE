@@ -594,6 +594,12 @@ trimmomatic PE -threads 4 \
   ILLUMINACLIP:TruSeq3-PE.fa:2:30:10 \
   LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:36
 
+#########################################################################################################
+trimmomatic PE -threads 4 fastq/S04_R1_001.fastq fastq/S04_R2_001.fastq S04_R1_001paired.fastq S04_R1_001unpaired.fastq S04_R2_001paired.fastq S04_R2_001unpaired.fastq ILLUMINACLIP:/home/greatlife1/Trimmomatic-0.39/adapters/TruSeq3-PE.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:36
+#######################################################################################################################
+
+
+
 ✅ 3️⃣ Quality Control — FastQC + MultiQC
 
 👉 Purpose: Generate QC reports for trimmed reads.
@@ -638,6 +644,12 @@ bwa mem -t 4 GCF_000006945.2_ASM694v2_genomic.fna barcode01_R1_trimmed_paired.fa
 samtools sort barcode01.bam -o barcode01_sorted.bam
 samtools index barcode01_sorted.bam
 
+#################################################################################################################################################
+
+bwa index Salmonella_enterica_ref_genome/GCF_000006945.2_ASM694v2_genomic.fna && bwa mem -t 8 Salmonella_enterica_ref_genome/GCF_000006945.2_ASM694v2_genomic.fna trimmomatic_trimmed_fastq/S04/S04_R1_001paired.fastq trimmomatic_trimmed_fastq/S04/S04_R2_001paired.fastq | samtools view -bS - | samtools sort -o S04_sorted.bam && samtools index S04_sorted.bam && bcftools mpileup -Ou -f Salmonella_enterica_ref_genome/GCF_000006945.2_ASM694v2_genomic.fna S04_sorted.bam | bcftools call -mv -Oz -o S04_variants.vcf.gz && bcftools index S04_variants.vcf.gz && bcftools consensus -f Salmonella_enterica_ref_genome/GCF_000006945.2_ASM694v2_genomic.fna S04_variants.vcf.gz > S04_consensus.fasta
+
+#####################################################################################################################################################################
+
 🧩 6️⃣ De novo Assembly — SPAdes
 
 👉 Purpose: Build genome contigs from reads (without reference).
@@ -646,6 +658,12 @@ samtools index barcode01_sorted.bam
 📍 PAIRED-END
 
 spades.py -1 barcode01_R1_trimmed_paired.fastq -2 barcode01_R2_trimmed_paired.fastq -o spades_output/ -t 4
+
+##########################################################################################################################
+
+spades.py -1 trimmomatic_trimmed_fastq/S02/S02_R1_001paired.fastq -2 trimmomatic_trimmed_fastq/S02/S02_R2_001paired.fastq -o spades_denovo_assembled/ -t 4
+
+#########################################################################################################################
 
 🧽 7️⃣ Polishing — Pilon
 
