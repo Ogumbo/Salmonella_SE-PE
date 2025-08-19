@@ -661,7 +661,11 @@ spades.py -1 barcode01_R1_trimmed_paired.fastq -2 barcode01_R2_trimmed_paired.fa
 
 ##########################################################################################################################
 
-spades.py -1 trimmomatic_trimmed_fastq/S02/S02_R1_001paired.fastq -2 trimmomatic_trimmed_fastq/S02/S02_R2_001paired.fastq -o spades_denovo_assembled/ -t 4
+
+
+pades.py -1 trimmomatic_trimmed_fastq/S30/S30_R1_001paired.fastq -2 trimmomatic_trimmed_fastq/S30/S30_R2_001paired.fastq -o spades_denovo_assembled/S30 -t 4
+
+
 
 #########################################################################################################################
 
@@ -710,6 +714,20 @@ abricate --db plasmidfinder pilon_polished.fasta > abricate_plasmids.txt
 👉 Purpose: Confirm species ID
 
 kraken2 --db /path/to/kraken_db --threads 4 --report kraken_report.txt --output kraken_output.txt pilon_polished.fasta
+
+
+
+################################################################################################################################################
+
+KRAKEN FOR DENOVO ASSEMBLY
+
+
+kraken --db /home/greatlife1/kraken_db --threads 8 --fastq-input --paired spades_denovo_assembled/S06/corrected/S06_R1_001paired.00.0_0.cor.fastq spades_denovo_assembled/S06/corrected/S06_R2_001paired.00.0_0.cor.fastq --output taxonomy_kraken/S06_kraken_output.txt && kraken-report --db /home/greatlife1/kraken_db taxonomy_kraken/S06_kraken_output.txt > taxonomy_kraken/S06_kraken_report.txt
+
+####################################################################################################################################################
+
+
+
 
 🌳 1️⃣1️⃣ Pangenome + Phylogenetics
 
