@@ -669,6 +669,39 @@ pades.py -1 trimmomatic_trimmed_fastq/S30/S30_R1_001paired.fastq -2 trimmomatic_
 
 #########################################################################################################################
 
+
+
+ASSEMBLERS FOR METAGENOMICS
+
+megahit
+
+
+
+megahit -1 S28_R1.trimmed.fastq -2 S28_R2.trimmed.fastq \
+   -o S28_megahit_out -t 16
+
+
+###############################################################################################################################
+
+
+TAXONOMY ID AND STEPS
+
+
+
+SPEP 1:
+
+kraken --db /home/greatlife1/kraken_db --fasta-input S28_megahit_out/final.contigs.fa \
+--output S28.kraken.out
+
+
+
+
+Step2:kraken-report --db /home/greatlife1/kraken_db S28.kraken.out > S28.kraken.report
+
+
+#
+
+
 🧽 7️⃣ Polishing — Pilon
 
 👉 Purpose: Correct assembly errors using mapped reads.
@@ -727,6 +760,19 @@ kraken --db /home/greatlife1/kraken_db --threads 8 --fastq-input --paired spades
 ####################################################################################################################################################
 
 
+
+
+
+
+
+KRAKEN AFTER DENOVO ASSEMBLY USING MEGAHIT
+
+
+
+for i in {29..43}; do echo "Processing Sample S$i..."; kraken --db /home/greatlife1/kraken_db --fasta-input S${i}_megahit_out/final.contigs.fa --output S${i}.kraken.out && kraken-report --db /home/greatlife1/kraken_db S${i}.kraken.out > S${i}.kraken.report; done
+
+
+##############################################################################################################################################################
 
 
 🌳 1️⃣1️⃣ Pangenome + Phylogenetics
