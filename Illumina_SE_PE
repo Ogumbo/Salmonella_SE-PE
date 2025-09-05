@@ -141,6 +141,25 @@ prokka --outdir prokka_output --prefix barcode01 pilon_polished.fasta
 # MLST
 mlst pilon_polished.fasta
 
+#############################################################################################################################################
+
+AMR
+
+for i in {29..43}; do abricate --db resfinder prokka_annotation/S${i}/S${i}.gff > amr/S${i}_amr.tab; done
+
+#####################################################################################################################################################
+
+PLASMIDS
+
+for i in {29..43}; do abricate --db plasmidfinder prokka_annotation/S${i}/S${i}.gff > plasmid/S${i}_plasmid.tab; done
+############################################################################################################################
+
+VIRULENCE
+
+for i in {29..43}; do abricate --db vfdb prokka_annotation/S${i}/S${i}.gff > virulence/S${i}_virulence.tab; done
+
+#########################################################################################################################################################
+
 # AMR + virulence + plasmids with abricate
 abricate --db resfinder pilon_polished.fasta > abricate_resfinder.txt
 abricate --db virulencefinder pilon_polished.fasta > abricate_virulence.txt
